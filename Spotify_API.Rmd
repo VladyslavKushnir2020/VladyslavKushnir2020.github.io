@@ -1,0 +1,178 @@
+---
+title: "Spotify API in R"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+
+In this short piece work I would like to explore how to access Spotify data with the help of **spotifyr-package** and which various interesting things can be done with it. The following explorative analysis is of relevance for music industry professionals, music analysts as well as music lovers.
+
+## Downloading packages
+
+To access Spotify API, additional packages need to be downloaded. Notice that package **spotifyr** was removed from CRAN recently, therefore, here is the alternative way of downloading it. 
+```{r}
+library(devtools)
+devtools::install_github('charlie86/spotifyr')
+library(spotifyr)
+library(tidyverse)
+library(knitr)
+```
+
+More information on accessing Spotify for Spotify credentials can be found here https://www.rcharlie.com/spotifyr/. To proceed, we need to create 3 ID-related variables based on the information from our Spotify for Developers account. 
+```{r}
+#Sys.setenv(SPOTIFY_CLIENT_ID = 'XXX')
+#Sys.setenv(SPOTIFY_CLIENT_SECRET = 'XXX')
+#access_token <- get_spotify_access_token()
+```
+
+
+## Explorative data analysis 
+
+Let's carry out a quick test to see if it has worked by looking at key_mode of the artist Lorde, who, according to Forbes, "became a superstar thanks to Spotify". According to Spotify for Artists, "key denotes the major or minor scale in which a piece of music operates, and thus, the notes that belong in it. Perhaps the most important distinction to make between major and minor keys is that major keys generally sound upbeat, and minor keys generally have a melancholy tinge to them".
+```{r}
+lorde <- get_artist_audio_features('Lorde')
+lorde %>%
+  count(key_mode, sort = TRUE) %>%
+  head(10) 
+```
+
+
+In the table above we can see the distribution of key-mode across Lorde's songs. 
+
+Now let's look at the distribution of valence across Lorde's songs. Spotify claims that valence "describes the musical positiveness conveyed by a track, measured between 0 and 1, the higher the valence, the happier the track is". 
+```{r}
+lorde <- get_artist_audio_features('lorde')
+lorde %>%
+  arrange(-valence)%>% #decreasing
+  select(track_name, valence)
+```
+
+Indeed Lorde's song "The Love Club" has the highest valence of 0.6 with other famous songs such as "Perfect Places", "Tennis Court", "Team" having lower degree of positiveness. 
+
+We can also find the mean valence for each of the Lorde's albums.
+```{r}
+lorde %>%
+  group_by (album_name) %>%
+  summarise(mean(valence)) %>%
+  arrange(desc('mean(valence)'))
+```
+
+Apparently, the most recent album of Lorde "Melodrama" is the most positive one, with the mean valence of 0.27. 
+
+To get a better understanding of the valence data, we can visualize it. For this, we need **ggjoy-package**. 
+```{r}
+library(ggjoy)
+```
+
+After installing the package we can plot the valence (=musical positiveness) of Lorde's major albums.
+```{r}
+ggplot(lorde, aes(x = valence, y = album_name, fill = ..x..)) + geom_density_ridges_gradient() + 
+  theme(legend.position = "none")
+```
+
+In the graph above we can see the density-plots of valence for Lorde's three major albums: "Melodrama", "Pure Heroine" and "Pure Heroine (Extended)". The plots can be interpeted in the following way: if you group together all valence-values for each of the albums, they pick around 0.1 for "Pure Heroine" and its extended version, while for "Melodrama" the valence picks at 0.2 or so. Therefore, we can definitely claim that Lorde's albums are not that positive, according to Spotify data. 
+
+Another interesting thing to do with our data is to combine it with lyrics. For this we need to use  **genius-package**. 
+```{r}
+library(genius)
+```
+
+Now let's test it on "Pure Heroine" album of Lorde. 
+```{r}
+pure_heroine <-genius_album(artist = "Lorde", album = "Pure Heroine")
+```
+
+For further analysis based on lyrics, we need an additional package. 
+```{r}
+library(tidytext)
+```
+
+Now let's view the lyrics. 
+```{r}
+View(pure_heroine)
+```
+
+```{r}
+pure_heroine %>%
+  unnest_tokens(word, lyric) %>%
+  anti_join(stop_words) %>%
+  inner_join(get_sentiments("bing")) -> pure_heroine_words
+```
+
+Furthermore, we can visualize the lyrics. 
+```{r}
+pure_heroine_words %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ggplot(aes(reorder(word,n), n, fill = sentiment)) + geom_col() + coord_flip() + facet_wrap(~sentiment, scales = "free_y")
+```
+
+As can be seen in the plots above, the most frequent positive words used in the album "Pure Heroine" are "love", "glow" "glory", while the most frequent negative words are "contagious", "lose" and "cry". To make the plots look cleaner, we can also filter them and display only the words that appear more than once.
+
+```{r}
+pure_heroine_words %>%
+  count(word, sentiment, sort = TRUE) %>%
+  filter(n >1) %>%
+  ggplot(aes(reorder(word,n), n, fill = sentiment)) + geom_col() + coord_flip() + facet_wrap(~sentiment, scales = "free_y")
+```
+
+Here is another visualization option. 
+```{r}
+pure_heroine_words %>%
+  count(word, sentiment, sort = TRUE) %>%
+  arrange (desc(n)) %>%
+  head(10) %>%
+  ggplot(aes(reorder(word,n),n, fill = sentiment)) + geom_col() + coord_flip()
+```
+
+It's worth noting that despite "Pure Heroine" having a low valence (0.21), the most frequent words in this album are classified as positive, rather than negative. 
+
+But can we create a density plot of a sentiment of the lyrics from the Lorde's album "Pure Heroine"? Indeed, for this purpose we can use the code from above.  
+```{r}
+pure_heroine_words %>%
+  count(word, sentiment, sort = TRUE) %>%
+  arrange(desc(n)) %>%
+  ggplot(aes(x = n, y = as.factor(sentiment))) + geom_density_ridges()
+```
+
+Based on the plot above it can be stated that the distribution of negative and positive words in Lorde's songs from "Pure Heroine" is almost the same.
+
+So far, we've covered the valence and lyrics of Lorde's tracks. In the end, we can also try visualizing keys.
+```{r}
+lorde %>%
+  count(key_mode, sort = TRUE) %>%
+  ggplot(aes(reorder(key_mode, n), n))+
+  geom_col(fill = "#6495ED") + coord_flip() 
+```
+
+Here we can see that C major is significantly prevailing in Lorde's albums.
+
+Now let's filter out the result only for the album "Pure Heroine". 
+```{r}
+lorde %>%
+  filter(!album_name %in% c("Pure Heroine")) %>%
+  count(key_mode, sort = TRUE) %>%
+  ggplot(aes(reorder(key_mode, n), n))+
+  geom_col(fill = "#6495ED") + coord_flip()
+```
+
+Based on this plot we can state that the distribution of keys for the album "Pure Heroine" doesn't differ a lot. 
+
+We can also compare the frequency of minor and major mode in the album "Pure Heroine".
+```{r}
+lorde %>%
+  filter(!album_name %in% c("Pure Heroine")) %>%
+  count(mode_name, sort = TRUE) %>%
+  ggplot(aes(reorder(mode_name, n), n))+
+  geom_col(fill = "#000080") + coord_flip()
+```
+
+Although valence and keys cannot be compared directly, one thing is worth pointing out. Despite the low valence (positiveness) of "Pure Heroine", it is nevertheless has a prevailing major mode, which is upbeat and energetic, whereas minor mode is considered to be more sad and melancholic. 
+
+In conclusion, Spotify API data represents a lot of different features than can be analyzed with the help of **spotifyr-package**. The above exploratory analysis has demonstrated not only the analysis of different music features but also the analysis of lyrics, based on Lorde's music. 
+
+
+
+
+
